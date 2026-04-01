@@ -2,7 +2,7 @@ import { computed, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { defineStore } from 'pinia';
 import { useLoading } from '@sa/hooks';
-import { fetchGetUserInfo, fetchLogin } from '@/service/api';
+import { fetchGetUserInfo, fetchLogin, fetchLogout } from '@/service/api';
 import { useRouterPush } from '@/hooks/common/router';
 import { localStg } from '@/utils/storage';
 import { SetupStoreId } from '@/enum';
@@ -42,7 +42,14 @@ export const useAuthStore = defineStore(SetupStoreId.Auth, () => {
   async function resetStore() {
     recordUserId();
 
+    // Capture token before clearing, then clear storage to prevent 401 -> refresh -> resetStore recursion
+    const savedToken = localStg.get('token');
     clearAuthStorage();
+
+    // Best-effort server-side logout with the captured token (don't block on it)
+    if (savedToken) {
+      fetchLogout(savedToken).catch(() => {});
+    }
 
     authStore.$reset();
 
@@ -92,16 +99,22 @@ export const useAuthStore = defineStore(SetupStoreId.Auth, () => {
   /**
    * Login
    *
-   * @param userName User name
+   * @param email User email
    * @param password Password
    * @param [redirect=true] Whether to redirect after login. Default is `true`
    */
-  async function login(userName: string, password: string, redirect = true) {
+  async function login(email: string, password: string, redirect = true) {
     startLoading();
 
-    const { data: loginToken, error } = await fetchLogin(userName, password);
+    const { data: loginResponse, error } = await fetchLogin(email, password);
 
     if (!error) {
+      // Map backend tokens to internal format
+      const loginToken: Api.Auth.LoginToken = {
+        token: loginResponse.tokens.access_token,
+        refreshToken: loginResponse.tokens.refresh_token
+      };
+
       const pass = await loginByToken(loginToken);
 
       if (pass) {
@@ -121,8 +134,6 @@ export const useAuthStore = defineStore(SetupStoreId.Auth, () => {
           duration: 4500
         });
       }
-    } else {
-      resetStore();
     }
 
     endLoading();
@@ -146,11 +157,17 @@ export const useAuthStore = defineStore(SetupStoreId.Auth, () => {
   }
 
   async function getUserInfo() {
-    const { data: info, error } = await fetchGetUserInfo();
+    const { data: backendUser, error } = await fetchGetUserInfo();
 
     if (!error) {
-      // update store
-      Object.assign(userInfo, info);
+      // Map backend user to SoybeanAdmin's UserInfo structure
+      const mappedInfo: Api.Auth.UserInfo = {
+        userId: String(backendUser.id),
+        userName: backendUser.name,
+        roles: backendUser.roles,
+        buttons: backendUser.permissions
+      };
+      Object.assign(userInfo, mappedInfo);
 
       return true;
     }

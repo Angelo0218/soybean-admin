@@ -3,46 +3,53 @@ import { request } from '../request';
 /**
  * Login
  *
- * @param userName User name
+ * @param email User email
  * @param password Password
  */
-export function fetchLogin(userName: string, password: string) {
-  return request<Api.Auth.LoginToken>({
+export function fetchLogin(email: string, password: string) {
+  return request<Api.Auth.BackendLoginResponse>({
     url: '/auth/login',
     method: 'post',
     data: {
-      userName,
-      password
+      email,
+      password,
+      device_name: 'web'
     }
   });
 }
 
 /** Get user info */
 export function fetchGetUserInfo() {
-  return request<Api.Auth.UserInfo>({ url: '/auth/getUserInfo' });
+  return request<Api.Auth.BackendUser>({ url: '/auth/me' });
 }
 
 /**
  * Refresh token
  *
+ * Backend expects refresh_token in Authorization header
+ *
  * @param refreshToken Refresh token
  */
 export function fetchRefreshToken(refreshToken: string) {
-  return request<Api.Auth.LoginToken>({
-    url: '/auth/refreshToken',
+  return request<Api.Auth.BackendTokens>({
+    url: '/auth/refresh',
     method: 'post',
-    data: {
-      refreshToken
-    }
-  });
+    headers: {
+      Authorization: `Bearer ${refreshToken}`
+    },
+    // Prevent onBackendFail from treating refresh 401 as "token expired" (infinite loop)
+    _skipAuthRetry: true
+  } as any);
 }
 
-/**
- * return custom backend error
- *
- * @param code error code
- * @param msg error message
- */
-export function fetchCustomBackendError(code: string, msg: string) {
-  return request({ url: '/auth/error', params: { code, msg } });
+/** Logout (best-effort, skip 401 handling to prevent recursion) */
+export function fetchLogout(token: string) {
+  return request<null>({
+    url: '/auth/logout',
+    method: 'post',
+    headers: {
+      Authorization: `Bearer ${token}`
+    },
+    _skipAuthRetry: true
+  } as any);
 }

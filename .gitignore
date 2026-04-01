@@ -32,4 +32,6 @@ coverage
 package-lock.json
 yarn.lock
 
+backend-api-analysis.md
+
 .VSCodeCounter
